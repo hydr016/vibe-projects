@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DrawProof — Human Verification</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2e;
+    --accent: #00e5ff;
+    --accent2: #ff3d71;
+    --accent3: #39ff14;
+    --text: #e8e8f0;
+    --muted: #4a4a6a;
+    --canvas-bg: #0d0d16;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 600px 400px at 20% 20%, rgba(0,229,255,0.04) 0%, transparent 70%),
+      radial-gradient(ellipse 500px 500px at 80% 80%, rgba(57,255,20,0.03) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .grid-bg {
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 10;
+    width: 520px;
+    max-width: 95vw;
+    padding: 16px 0;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .logo-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+  .logo-dot:last-child { animation-delay: 0.5s; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.3; transform: scale(0.5); }
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 5px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  /* ── Task bar ── */
+  .task-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.015);
+  }
+
+  .task-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    width: 60px;
+  }
+
+  .shape-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .shape-icon { font-size: 20px; }
+
+  .timer-display {
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    width: 60px;
+    text-align: right;
+  }
+  .timer-display span { color: var(--accent3); }
+
+  /* ── Canvas area ── */
+  .canvas-wrap {
+    position: relative;
+    padding: 18px;
+  }
+
+  #drawCanvas {
+    display: block;
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--canvas-bg);
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  /* Ghost SVG guide — sits ON TOP of canvas, pointer-events none */
+  .ghost-layer {
+    position: absolute;
+    top: 18px; left: 18px; right: 18px; bottom: 18px;
+    border-radius: 10px;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ghost-layer svg {
+    width: 70%;
+    height: 70%;
+    opacity: 0.12;
+  }
+
+  /* Start prompt overlay */
+  .start-overlay {
+    position: absolute;
+    top: 18px; left: 18px; right: 18px; bottom: 18px;
+    border-radius: 10px;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.3s;
+  }
+
+  .start-overlay.hidden { opacity: 0; }
+
+  .start-prompt {
+    text-align: center;
+  }
+  .start-prompt .big {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--muted);
+    line-height: 1.3;
+    margin-bottom: 6px;
+  }
+  .start-prompt .small {
+    font-size: 10px;
+    color: #252540;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Metrics row ── */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border-top: 1px solid var(--border);
+  }
+
+  .metric {
+    background: var(--surface);
+    padding: 11px 12px;
+    text-align: center;
+  }
+  .metric-label {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .metric-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    transition: color 0.3s;
+  }
+
+  /* ── Progress dots ── */
+  .progress-dots {
+    display: flex;
+    gap: 7px;
+    justify-content: center;
+    padding: 12px 20px 10px;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.3s, transform 0.2s;
+  }
+  .dot.done { background: var(--accent3); }
+  .dot.active { background: var(--accent); transform: scale(1.4); }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 10px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--border);
+  }
+
+  .btn {
+    flex: 1;
+    padding: 11px;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+  }
+  .btn-clear {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .btn-clear:hover { border-color: var(--muted); color: var(--text); }
+
+  .btn-verify {
+    background: var(--accent);
+    color: #000;
+    font-weight: 700;
+  }
+  .btn-verify:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-verify:disabled { opacity: 0.25; cursor: not-allowed; }
+
+  /* ── Result screen ── */
+  .result-screen {
+    display: none;
+    padding: 36px 24px;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .result-screen.show { display: flex; }
+
+  .result-icon { font-size: 50px; line-height: 1; }
+
+  .result-verdict {
+    font-family: 'Syne', sans-serif;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+  }
+  .result-verdict.human { color: var(--accent3); }
+  .result-verdict.bot   { color: var(--accent2); }
+
+  .result-message {
+    font-size: 11px;
+    color: var(--muted);
+    max-width: 300px;
+    line-height: 1.7;
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+
+  .score-breakdown {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+
+  .score-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 6px;
+    text-align: center;
+  }
+  .score-item-label {
+    font-size: 8px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .score-item-val {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .confidence-bar-wrap {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .confidence-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .confidence-bar {
+    height: 5px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .confidence-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
+    width: 0%;
+  }
+  .confidence-fill.human { background: var(--accent3); }
+  .confidence-fill.bot   { background: var(--accent2); }
+
+  .btn-retry {
+    margin-top: 4px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 10px 28px;
+    border-radius: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-retry:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* shape counter badge */
+  .shape-counter {
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    padding: 8px 0 2px;
+    letter-spacing: 0.1em;
+  }
+  .shape-counter span { color: var(--accent); font-weight: 600; }
+
+  /* ── Analysis feed ── */
+  .analysis-feed {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    z-index: 100;
+    pointer-events: none;
+  }
+  .feed-item {
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    background: rgba(0,229,255,0.05);
+    border: 1px solid rgba(0,229,255,0.12);
+    padding: 4px 10px;
+    border-radius: 4px;
+    animation: fadeIn 0.25s ease forwards;
+    opacity: 0;
+    transition: opacity 1s;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateX(8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+
+<div class="container">
+  <header>
+    <div class="logo">
+      <div class="logo-dot"></div>
+      DrawProof
+      <div class="logo-dot"></div>
+    </div>
+    <h1>Prove you're human</h1>
+    <p class="subtitle">Behavioral biometric · Shape drawing analysis</p>
+  </header>
+
+  <div class="card">
+
+    <!-- Task bar -->
+    <div class="task-bar">
+      <div class="task-label">Draw a</div>
+      <div class="shape-name">
+        <span class="shape-icon" id="shapeIcon">○</span>
+        <span id="shapeName">Circle</span>
+      </div>
+      <div class="timer-display">⏱ <span id="timerVal">0.0s</span></div>
+    </div>
+
+    <!-- Canvas -->
+    <div class="canvas-wrap">
+      <canvas id="drawCanvas" height="300"></canvas>
+
+      <!-- Ghost guide on top -->
+      <div class="ghost-layer" id="ghostLayer"></div>
+
+      <!-- Start prompt -->
+      <div class="start-overlay" id="startOverlay">
+        <div class="start-prompt">
+          <div class="big">Trace the shape<br>shown above ↑</div>
+          <div class="small">— click or tap to begin —</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live metrics -->
+    <div class="metrics-row">
+      <div class="metric">
+        <div class="metric-label">Points</div>
+        <div class="metric-value" id="mPoints">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Avg Speed</div>
+        <div class="metric-value" id="mVelocity">—</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Wobble</div>
+        <div class="metric-value" id="mWobble">—</div>
+      </div>
+    </div>
+
+    <!-- Round counter -->
+    <div class="shape-counter">Round <span id="roundNum">1</span> of 3</div>
+
+    <!-- Progress dots -->
+    <div class="progress-dots" id="progressDots"></div>
+
+    <!-- Controls -->
+    <div class="controls" id="controls">
+      <button class="btn btn-clear" onclick="clearCanvas()">↺ Clear</button>
+      <button class="btn btn-verify" id="verifyBtn" onclick="analyzeDrawing()" disabled>Analyze →</button>
+    </div>
+
+    <!-- Result -->
+    <div class="result-screen" id="resultScreen">
+      <div class="result-icon" id="resultIcon">🧠</div>
+      <div class="result-verdict" id="resultVerdict">HUMAN</div>
+      <div class="result-message" id="resultMessage"></div>
+      <div class="score-breakdown" id="scoreBreakdown"></div>
+      <div class="confidence-bar-wrap">
+        <div class="confidence-label">
+          <span>Human Confidence</span>
+          <span id="confPct">0%</span>
+        </div>
+        <div class="confidence-bar">
+          <div class="confidence-fill" id="confFill"></div>
+        </div>
+      </div>
+      <button class="btn-retry" id="retryBtn" onclick="resetForNext()">Draw another →</button>
+    </div>
+
+  </div>
+</div>
+
+<div class="analysis-feed" id="analysisFeed"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// SHAPES — all 8, SVG in viewBox 0 0 100 100
+// ─────────────────────────────────────────────
+const SHAPES = [
+  {
+    name: 'Circle',
+    icon: '○',
+    svg: `<circle cx="50" cy="50" r="40" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>`
+  },
+  {
+    name: 'Square',
+    icon: '□',
+    svg: `<rect x="10" y="10" width="80" height="80" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>`
+  },
+  {
+    name: 'Rectangle',
+    icon: '▭',
+    svg: `<rect x="5" y="22" width="90" height="56" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>`
+  },
+  {
+    name: 'Triangle',
+    icon: '△',
+    svg: `<polygon points="50,6 94,90 6,90" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>`
+  },
+  {
+    name: 'Diamond',
+    icon: '◇',
+    svg: `<polygon points="50,5 95,50 50,95 5,50" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>`
+  },
+  {
+    name: 'Star',
+    icon: '★',
+    svg: `<polygon points="50,5 61,35 95,35 68,57 79,91 50,70 21,91 32,57 5,35 39,35" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>`
+  },
+  {
+    name: 'Arrow',
+    icon: '➤',
+    svg: `<polyline points="8,50 68,50" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4"/>
+          <polyline points="55,20 90,50 55,80" fill="none" stroke="#00e5ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`
+  },
+  {
+    name: 'Zigzag',
+    icon: '〜',
+    svg: `<polyline points="5,70 22,30 40,70 58,30 76,70 95,30" fill="none" stroke="#00e5ff" stroke-width="4" stroke-dasharray="6 4" stroke-linecap="round" stroke-linejoin="round"/>`
+  },
+];
+
+// ─────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────
+let roundIdx   = 0;
+let strokes = [];
+let currentStroke = [];
+let isDrawing = false;
+let drawStart = null;
+let timerInterval = null;
+let elapsedTime = 0;
+
+const canvas   = document.getElementById('drawCanvas');
+const ctx      = canvas.getContext('2d');
+const overlay  = document.getElementById('startOverlay');
+const verifyBtn= document.getElementById('verifyBtn');
+
+// ─────────────────────────────────────────────
+// Random shape queue — 3 unique shapes per session
+// ─────────────────────────────────────────────
+const TOTAL_ROUNDS = 3;
+let shapeQueue  = [];
+let roundScores = [];
+
+function buildShapeQueue() {
+  // Fisher-Yates shuffle, pick TOTAL_ROUNDS unique shapes
+  const indices = SHAPES.map((_, i) => i);
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  shapeQueue = indices.slice(0, TOTAL_ROUNDS);
+}
+
+function currentShapeObj() {
+  return SHAPES[shapeQueue[roundIdx]];
+}
+
+// ─────────────────────────────────────────────
+// UI updates
+// ─────────────────────────────────────────────
+function updateTaskBar() {
+  const s = currentShapeObj();
+  document.getElementById('shapeName').textContent = s.name;
+  document.getElementById('shapeIcon').textContent = s.icon;
+  document.getElementById('roundNum').textContent  = roundIdx + 1;
+}
+
+function updateGhost() {
+  const s = currentShapeObj();
+  document.getElementById('ghostLayer').innerHTML =
+    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:70%;height:70%;opacity:0.15">${s.svg}</svg>`;
+}
+
+function updateProgress() {
+  const dots = document.getElementById('progressDots');
+  dots.innerHTML = '';
+  for (let i = 0; i < TOTAL_ROUNDS; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i < roundIdx ? ' done' : i === roundIdx ? ' active' : '');
+    dots.appendChild(d);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Canvas drawing
+// ─────────────────────────────────────────────
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr  = window.devicePixelRatio || 1;
+  canvas.width  = rect.width  * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  // re-set canvas CSS height
+  canvas.style.height = '280px';
+}
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const src  = e.touches ? e.touches[0] : e;
+  return {
+    x: src.clientX - rect.left,
+    y: src.clientY - rect.top,
+    t: Date.now()
+  };
+}
+
+function onDown(e) {
+  e.preventDefault();
+  resizeCanvas();
+  isDrawing = true;
+  const p = getPos(e);
+  currentStroke = [p];
+  overlay.classList.add('hidden');
+
+  if (!drawStart) {
+    drawStart = Date.now();
+    timerInterval = setInterval(() => {
+      elapsedTime = (Date.now() - drawStart) / 1000;
+      document.getElementById('timerVal').textContent = elapsedTime.toFixed(1) + 's';
+    }, 100);
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+}
+
+function onMove(e) {
+  e.preventDefault();
+  if (!isDrawing) return;
+  const p = getPos(e);
+  currentStroke.push(p);
+
+  ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth   = 2.5;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+
+  updateLiveMetrics();
+}
+
+function onUp(e) {
+  if (!isDrawing) return;
+  isDrawing = false;
+  if (currentStroke.length > 1) {
+    strokes.push([...currentStroke]);
+  }
+  currentStroke = [];
+  if (strokes.length > 0) verifyBtn.disabled = false;
+}
+
+canvas.addEventListener('mousedown',  onDown);
+canvas.addEventListener('mousemove',  onMove);
+canvas.addEventListener('mouseup',    onUp);
+canvas.addEventListener('mouseleave', onUp);
+canvas.addEventListener('touchstart', onDown, { passive: false });
+canvas.addEventListener('touchmove',  onMove, { passive: false });
+canvas.addEventListener('touchend',   onUp);
+
+function clearCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  strokes = [];
+  currentStroke = [];
+  isDrawing = false;
+  drawStart = null;
+  elapsedTime = 0;
+  clearInterval(timerInterval);
+  timerInterval = null;
+  document.getElementById('timerVal').textContent = '0.0s';
+  document.getElementById('mPoints').textContent  = '0';
+  document.getElementById('mVelocity').textContent = '—';
+  document.getElementById('mWobble').textContent   = '—';
+  verifyBtn.disabled = true;
+  overlay.classList.remove('hidden');
+}
+
+// ─────────────────────────────────────────────
+// Live metrics
+// ─────────────────────────────────────────────
+function updateLiveMetrics() {
+  const all = strokes.concat(currentStroke.length ? [currentStroke] : []);
+  const pts  = all.reduce((s, sk) => s + sk.length, 0);
+  document.getElementById('mPoints').textContent = pts;
+
+  if (pts > 5) {
+    const vel = avgVelocity(all);
+    document.getElementById('mVelocity').textContent = vel.toFixed(0) + 'px/s';
+    const w = wobble(all);
+    const el = document.getElementById('mWobble');
+    el.textContent = w.toFixed(3);
+    el.style.color = w > 0.015 ? 'var(--accent3)' : w > 0.005 ? 'var(--accent)' : 'var(--accent2)';
+  }
+}
+
+function avgVelocity(strokeList) {
+  let dist = 0, time = 0;
+  for (const sk of strokeList) {
+    for (let i = 1; i < sk.length; i++) {
+      const dx = sk[i].x - sk[i-1].x, dy = sk[i].y - sk[i-1].y;
+      dist += Math.sqrt(dx*dx + dy*dy);
+      time += (sk[i].t - sk[i-1].t) / 1000 + 0.001;
+    }
+  }
+  return time > 0 ? dist / time : 0;
+}
+
+function wobble(strokeList) {
+  let total = 0, n = 0;
+  for (const sk of strokeList) {
+    for (let i = 2; i < sk.length; i++) {
+      const dx1 = sk[i-1].x - sk[i-2].x, dy1 = sk[i-1].y - sk[i-2].y;
+      const dx2 = sk[i].x   - sk[i-1].x, dy2 = sk[i].y   - sk[i-1].y;
+      const cross = Math.abs(dx1*dy2 - dy1*dx2);
+      const mag   = (Math.sqrt(dx1*dx1+dy1*dy1) * Math.sqrt(dx2*dx2+dy2*dy2)) + 1e-6;
+      total += cross / mag;
+      n++;
+    }
+  }
+  return n ? total / n : 0;
+}
+
+// ─────────────────────────────────────────────
+// Feature extraction + classification
+// ─────────────────────────────────────────────
+function extractFeatures(strokeList, timeSec) {
+  const all = strokeList.flat();
+  if (all.length < 4) return null;
+
+  const vels = [];
+  let pathLen = 0;
+  for (const sk of strokeList) {
+    for (let i = 1; i < sk.length; i++) {
+      const dx = sk[i].x - sk[i-1].x, dy = sk[i].y - sk[i-1].y;
+      const d  = Math.sqrt(dx*dx + dy*dy);
+      const dt = (sk[i].t - sk[i-1].t) / 1000 + 0.001;
+      pathLen += d;
+      vels.push(d / dt);
+    }
+  }
+
+  const velMean = vels.reduce((a,b)=>a+b,0) / vels.length;
+  const velVar  = vels.reduce((a,b)=>a+(b-velMean)**2,0) / vels.length;
+  const velCV   = Math.sqrt(velVar) / (velMean + 1);
+
+  let dirChanges = 0;
+  for (let i = 2; i < all.length; i++) {
+    const a1 = Math.atan2(all[i-1].y - all[i-2].y, all[i-1].x - all[i-2].x);
+    const a2 = Math.atan2(all[i].y   - all[i-1].y, all[i].x   - all[i-1].x);
+    let da = Math.abs(a2 - a1);
+    if (da > Math.PI) da = 2*Math.PI - da;
+    if (da > 0.25) dirChanges++;
+  }
+
+  return {
+    velCV,
+    wobble:        wobble(strokeList),
+    dirChangesNorm: dirChanges / (all.length + 1),
+    timePerPt:     timeSec / (all.length + 1),
+    avgVel:        velMean,
+    pointCount:    all.length
+  };
+}
+
+function classify(f) {
+  let score = 0;
+  const reasons = [];
+
+  // Speed inconsistency
+  const velOk = f.velCV > 0.25;
+  score += velOk ? 28 : 0;
+  reasons.push({ label: 'Speed Var', val: f.velCV.toFixed(2), good: velOk });
+
+  // Natural wobble
+  const wobOk = f.wobble > 0.006 && f.wobble < 0.7;
+  score += wobOk ? 30 : 0;
+  reasons.push({ label: 'Wobble', val: f.wobble.toFixed(3), good: wobOk });
+
+  // Micro-corrections
+  const dirOk = f.dirChangesNorm > 0.08 && f.dirChangesNorm < 0.7;
+  score += dirOk ? 22 : 0;
+  reasons.push({ label: 'Corrections', val: f.dirChangesNorm.toFixed(2), good: dirOk });
+
+  // Timing rhythm
+  const tmOk = f.timePerPt > 0.002 && f.timePerPt < 0.12;
+  score += tmOk ? 20 : 0;
+  reasons.push({ label: 'Timing', val: f.timePerPt.toFixed(3)+'s', good: tmOk });
+
+  if (f.pointCount < 5) score = Math.min(score, 8);
+
+  return { score: Math.min(score, 100), reasons };
+}
+
+// ─────────────────────────────────────────────
+// Analyze + show result
+// ─────────────────────────────────────────────
+function analyzeDrawing() {
+  if (!strokes.length) return;
+  clearInterval(timerInterval);
+  const time = elapsedTime || 0.1;
+
+  feedLog('Extracting features...');
+  setTimeout(() => {
+    const f = extractFeatures(strokes, time);
+    if (!f) { feedLog('Need more data — draw more!'); return; }
+    feedLog(`VelCV=${f.velCV.toFixed(2)}  Wobble=${f.wobble.toFixed(3)}`);
+    feedLog(`DirChanges=${(f.dirChangesNorm*100).toFixed(0)}%  Pts=${f.pointCount}`);
+
+    setTimeout(() => {
+      const { score, reasons } = classify(f);
+      showResult(score, reasons);
+    }, 350);
+  }, 150);
+}
+
+function showResult(score, reasons) {
+  roundScores.push(score);
+  const isHuman = score >= 45;
+  const isLast  = roundIdx >= TOTAL_ROUNDS - 1;
+
+  document.getElementById('controls').style.display = 'none';
+  const rs = document.getElementById('resultScreen');
+  rs.classList.add('show');
+
+  document.getElementById('resultIcon').textContent = isHuman ? '🧠' : '🤖';
+  const v = document.getElementById('resultVerdict');
+  v.className = 'result-verdict ' + (isHuman ? 'human' : 'bot');
+
+  if (!isLast) {
+    v.textContent = isHuman ? 'PASS ✓' : 'FAIL ✗';
+    document.getElementById('resultMessage').textContent = isHuman
+      ? `Good! Natural human patterns detected. ${TOTAL_ROUNDS - roundIdx - 1} shape(s) remaining.`
+      : `Bot-like pattern detected this round. ${TOTAL_ROUNDS - roundIdx - 1} shape(s) remaining.`;
+    document.getElementById('retryBtn').textContent = 'Next shape →';
+  } else {
+    const avgScore = Math.round(roundScores.reduce((a,b)=>a+b,0) / roundScores.length);
+    const humanRounds = roundScores.filter(s => s >= 45).length;
+    const finalHuman  = humanRounds >= 2;
+    v.textContent = finalHuman ? 'HUMAN' : 'BOT DETECTED';
+    document.getElementById('resultMessage').textContent = finalHuman
+      ? `Passed ${humanRounds}/${TOTAL_ROUNDS} rounds. Avg confidence ${Math.min(avgScore,95)}%. Access granted!`
+      : `Only passed ${humanRounds}/${TOTAL_ROUNDS} rounds. Bot behaviour detected. Access denied.`;
+    document.getElementById('retryBtn').textContent = 'Try again →';
+  }
+
+  document.getElementById('scoreBreakdown').innerHTML = reasons.map(r => `
+    <div class="score-item">
+      <div class="score-item-label">${r.label}</div>
+      <div class="score-item-val" style="color:${r.good ? 'var(--accent3)' : 'var(--accent2)'}">${r.val}</div>
+    </div>`).join('');
+
+  const pct  = Math.min(score, 95);
+  const fill = document.getElementById('confFill');
+  fill.className = 'confidence-fill ' + (isHuman ? 'human' : 'bot');
+  document.getElementById('confPct').textContent = pct + '%';
+  setTimeout(() => { fill.style.width = pct + '%'; }, 80);
+
+  feedLog(isHuman ? `Round ${roundIdx+1}: ✓ HUMAN` : `Round ${roundIdx+1}: ✗ BOT`);
+}
+
+function resetForNext() {
+  const isLast = roundIdx >= TOTAL_ROUNDS - 1;
+  document.getElementById('controls').style.display = 'flex';
+  document.getElementById('resultScreen').classList.remove('show');
+
+  if (isLast) {
+    // Full restart — new random shapes
+    roundIdx    = 0;
+    roundScores = [];
+    buildShapeQueue();
+  } else {
+    roundIdx++;
+  }
+
+  clearCanvas();
+  updateTaskBar();
+  updateGhost();
+  updateProgress();
+  feedLog(isLast ? 'New session started' : `Round ${roundIdx + 1}: draw a ${currentShapeObj().name}`);
+}
+
+// ─────────────────────────────────────────────
+// Feed log
+// ─────────────────────────────────────────────
+function feedLog(msg) {
+  const feed = document.getElementById('analysisFeed');
+  const item = document.createElement('div');
+  item.className = 'feed-item';
+  item.textContent = '› ' + msg;
+  feed.appendChild(item);
+  if (feed.children.length > 5) feed.removeChild(feed.firstChild);
+  setTimeout(() => { item.style.opacity = '0.2'; }, 3500);
+}
+
+// ─────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────
+window.addEventListener('load', () => {
+  resizeCanvas();
+  buildShapeQueue();
+  updateTaskBar();
+  updateGhost();
+  updateProgress();
+  feedLog('DrawProof ready — 3 random shapes');
+  feedLog(`First up: draw a ${currentShapeObj().name}`);
+});
+</script>
+</body>
+</html>
